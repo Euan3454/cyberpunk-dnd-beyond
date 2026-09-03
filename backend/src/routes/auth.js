@@ -11,6 +11,8 @@ const signToken = (user) =>
     expiresIn: '7d',
   });
 
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+
 router.post(
   '/register',
   [body('username').isString().isLength({ min: 3 }), body('email').isEmail(), body('password').isLength({ min: 8 })],
@@ -20,14 +22,16 @@ router.post(
       if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
       }
-      const { username, email, password } = req.body;
-      const exists = await User.findOne({ $or: [{ username }, { email }] });
+      const { username, password } = req.body;
+      const email = normalizeEmail(req.body.email);
+      const exists = await User.findOne({ $or: [{ username: String(username).trim() }, { email }] });
       if (exists) {
         return res.status(409).json({ message: 'User already exists' });
       }
       const passwordHash = await bcrypt.hash(password, 10);
-      const user = await User.create({ username, email, passwordHash });
-      return res.status(201).json({ token: signToken(user), user: { id: user._id, username, email } });
+      const normalizedUsername = String(username).trim();
+      const user = await User.create({ username: normalizedUsername, email, passwordHash });
+      return res.status(201).json({ token: signToken(user), user: { id: user._id, username: normalizedUsername, email } });
     } catch (error) {
       return next(error);
     }
@@ -36,7 +40,8 @@ router.post(
 
 router.post('/login', async (req, res, next) => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body.email);
+    const password = String(req.body.password || '');
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -52,7 +57,7 @@ router.post('/login', async (req, res, next) => {
 });
 
 router.post('/password-reset/request', async (req, res) => {
-  const { email } = req.body;
+  const email = normalizeEmail(req.body.email);
   const user = await User.findOne({ email });
   if (!user) {
     return res.json({ message: 'If your account exists, a reset token has been generated.' });

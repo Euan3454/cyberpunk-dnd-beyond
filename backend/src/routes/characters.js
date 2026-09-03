@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const auth = require('../middleware/auth');
 const Character = require('../models/Character');
 const Cyberware = require('../models/Cyberware');
@@ -6,6 +7,7 @@ const Weapon = require('../models/Weapon');
 const Skill = require('../models/Skill');
 
 const router = express.Router();
+const { ObjectId } = mongoose.Types;
 
 const populateCharacter = (query) =>
   query
@@ -13,6 +15,26 @@ const populateCharacter = (query) =>
     .populate('equippedWeapons')
     .populate('learnedSkills', 'name tree category levelRequirement masteryLevel perk')
     .populate('learnedQuickHacks');
+
+const isObjectId = (value) => ObjectId.isValid(value);
+
+const toCharacterUpdate = (body = {}) => {
+  const update = {};
+  if (typeof body.name === 'string' && body.name.trim()) update.name = body.name.trim();
+  if (typeof body.className === 'string' && body.className.trim()) update.className = body.className.trim();
+  if (Number.isInteger(body.level) && body.level > 0) update.level = body.level;
+  if (typeof body.notes === 'string') update.notes = body.notes;
+  if (body.stats && typeof body.stats === 'object') {
+    const keys = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
+    update.stats = {};
+    for (const key of keys) {
+      const value = Number(body.stats[key]);
+      if (Number.isFinite(value)) update.stats[key] = value;
+    }
+  }
+  if (body.appearance && typeof body.appearance === 'object') update.appearance = body.appearance;
+  return update;
+};
 
 router.post('/', auth, async (req, res) => {
   const character = await Character.create({ ...req.body, userId: req.user.userId });
@@ -25,24 +47,34 @@ router.get('/', auth, async (req, res) => {
 });
 
 router.get('/:id', auth, async (req, res) => {
+  if (!isObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid character id' });
   const character = await populateCharacter(Character.findOne({ _id: req.params.id, userId: req.user.userId }));
   if (!character) return res.status(404).json({ message: 'Character not found' });
   return res.json(character);
 });
 
 router.put('/:id', auth, async (req, res) => {
-  const character = await Character.findOneAndUpdate({ _id: req.params.id, userId: req.user.userId }, req.body, { new: true });
+  if (!isObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid character id' });
+  const character = await Character.findOneAndUpdate(
+    { _id: req.params.id, userId: req.user.userId },
+    toCharacterUpdate(req.body),
+    { new: true }
+  );
   if (!character) return res.status(404).json({ message: 'Character not found' });
   return res.json(await populateCharacter(Character.findById(character._id)));
 });
 
 router.delete('/:id', auth, async (req, res) => {
+  if (!isObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid character id' });
   const deleted = await Character.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
   if (!deleted) return res.status(404).json({ message: 'Character not found' });
   return res.status(204).send();
 });
 
 router.get('/compare/:firstId/:secondId', auth, async (req, res) => {
+  if (!isObjectId(req.params.firstId) || !isObjectId(req.params.secondId)) {
+    return res.status(400).json({ message: 'Invalid character id' });
+  }
   const ids = [req.params.firstId, req.params.secondId];
   const characters = await Character.find({ _id: { $in: ids }, userId: req.user.userId });
   if (characters.length !== 2) return res.status(404).json({ message: 'Characters not found' });
@@ -55,6 +87,9 @@ router.get('/compare/:firstId/:secondId', auth, async (req, res) => {
 });
 
 router.post('/:id/cyberware/:cyberwareId/equip', auth, async (req, res) => {
+  if (!isObjectId(req.params.id) || !isObjectId(req.params.cyberwareId)) {
+    return res.status(400).json({ message: 'Invalid id' });
+  }
   const character = await Character.findOne({ _id: req.params.id, userId: req.user.userId });
   const cyberware = await Cyberware.findById(req.params.cyberwareId);
   if (!character || !cyberware) return res.status(404).json({ message: 'Character or cyberware not found' });
@@ -82,6 +117,9 @@ router.post('/:id/cyberware/:cyberwareId/equip', auth, async (req, res) => {
 });
 
 router.post('/:id/cyberware/:cyberwareId/unequip', auth, async (req, res) => {
+  if (!isObjectId(req.params.id) || !isObjectId(req.params.cyberwareId)) {
+    return res.status(400).json({ message: 'Invalid id' });
+  }
   const character = await Character.findOne({ _id: req.params.id, userId: req.user.userId });
   const cyberware = await Cyberware.findById(req.params.cyberwareId);
   if (!character || !cyberware) return res.status(404).json({ message: 'Character or cyberware not found' });
@@ -93,6 +131,9 @@ router.post('/:id/cyberware/:cyberwareId/unequip', auth, async (req, res) => {
 });
 
 router.post('/:id/weapons/:weaponId/equip', auth, async (req, res) => {
+  if (!isObjectId(req.params.id) || !isObjectId(req.params.weaponId)) {
+    return res.status(400).json({ message: 'Invalid id' });
+  }
   const character = await Character.findOne({ _id: req.params.id, userId: req.user.userId });
   const weapon = await Weapon.findById(req.params.weaponId);
   if (!character || !weapon) return res.status(404).json({ message: 'Character or weapon not found' });
@@ -105,6 +146,9 @@ router.post('/:id/weapons/:weaponId/equip', auth, async (req, res) => {
 });
 
 router.post('/:id/weapons/:weaponId/unequip', auth, async (req, res) => {
+  if (!isObjectId(req.params.id) || !isObjectId(req.params.weaponId)) {
+    return res.status(400).json({ message: 'Invalid id' });
+  }
   const character = await Character.findOne({ _id: req.params.id, userId: req.user.userId });
   if (!character) return res.status(404).json({ message: 'Character not found' });
   character.equippedWeapons = character.equippedWeapons.filter((id) => id.toString() !== req.params.weaponId);
@@ -113,6 +157,9 @@ router.post('/:id/weapons/:weaponId/unequip', auth, async (req, res) => {
 });
 
 router.post('/:id/skills/:skillId/learn', auth, async (req, res) => {
+  if (!isObjectId(req.params.id) || !isObjectId(req.params.skillId)) {
+    return res.status(400).json({ message: 'Invalid id' });
+  }
   const character = await Character.findOne({ _id: req.params.id, userId: req.user.userId });
   const skill = await Skill.findById(req.params.skillId);
   if (!character || !skill) return res.status(404).json({ message: 'Character or skill not found' });
